@@ -1,0 +1,747 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+#include <sys/stat.h>
+
+// ============================================================================
+// OS/2 API Type Definitions
+// ============================================================================
+
+typedef uint32_t APIRET;
+typedef uint32_t HFILE;
+typedef uint32_t ULONG;
+typedef uint16_t USHORT;
+typedef uint8_t  UCHAR;
+typedef char*    PSZ;
+typedef char*    PCHAR;
+typedef const char* PCSZ;
+typedef void*    PVOID;
+typedef HFILE*   PHFILE;
+typedef ULONG*   PULONG;
+typedef USHORT*  PUSHORT;
+typedef int32_t  LONG;
+
+#define APIENTRY
+
+// OS/2 Error Codes
+#define NO_ERROR                0
+#define ERROR_INVALID_FUNCTION  1
+#define ERROR_FILE_NOT_FOUND    2
+#define ERROR_PATH_NOT_FOUND    3
+#define ERROR_TOO_MANY_OPEN_FILES 4
+#define ERROR_ACCESS_DENIED     5
+#define ERROR_INVALID_HANDLE    6
+#define ERROR_NOT_ENOUGH_MEMORY 8
+#define ERROR_INVALID_PARAMETER 87
+
+// DosOpen flags
+#define OPEN_ACTION_FAIL_IF_EXISTS     0x0000
+#define OPEN_ACTION_OPEN_IF_EXISTS     0x0001
+#define OPEN_ACTION_REPLACE_IF_EXISTS  0x0002
+#define OPEN_ACTION_FAIL_IF_NEW        0x0000
+#define OPEN_ACTION_CREATE_IF_NEW      0x0010
+
+#define OPEN_SHARE_DENYREADWRITE       0x0010
+#define OPEN_SHARE_DENYWRITE           0x0020
+#define OPEN_SHARE_DENYREAD            0x0030
+#define OPEN_SHARE_DENYNONE            0x0040
+
+#define OPEN_ACCESS_READONLY           0x0000
+#define OPEN_ACCESS_WRITEONLY          0x0001
+#define OPEN_ACCESS_READWRITE          0x0002
+
+#define FILE_NORMAL    0x0000
+#define FILE_READONLY  0x0001
+
+#define FILE_EXISTED   1
+#define FILE_CREATED   2
+#define FILE_TRUNCATED 3
+
+#define FILE_BEGIN   0
+#define FILE_CURRENT 1
+#define FILE_END     2
+
+// ============================================================================
+// Binary Format Structures
+// ============================================================================
+
+typedef struct {
+uint16_t e_magic;
+uint8_t  e_skip[58];
+uint32_t e_lfanew;
+} __attribute__((packed)) mz_header_t;
+
+typedef struct {
+uint16_t magic;
+uint8_t  byte_order;
+uint8_t  word_order;
+uint32_t format_level;
+uint16_t cpu_type;
+uint16_t target_os;
+uint32_t module_version;
+uint32_t module_flags;
+uint32_t module_pages;
+uint32_t eip_object;
+uint32_t eip;
+uint32_t esp_object;
+uint32_t esp;
+uint32_t page_size;
+uint32_t page_offset_shift;
+uint32_t fixup_size;
+uint32_t fixup_checksum;
+uint32_t loader_size;
+uint32_t loader_checksum;
+uint32_t object_table_offset;
+uint32_t object_count;
+uint32_t object_page_table_offset;
+uint32_t object_iter_pages_offset;
+uint32_t resource_table_offset;
+uint32_t resource_count;
+uint32_t resident_names_offset;
+uint32_t entry_table_offset;
+uint32_t module_directives_offset;
+uint32_t module_directives_count;
+uint32_t fixup_page_table_offset;
+uint32_t fixup_record_table_offset;
+uint32_t imported_modules_offset;
+uint32_t imported_modules_count;
+uint32_t imported_proc_table_offset;
+uint32_t per_page_checksum_offset;
+uint32_t data_pages_offset;
+uint32_t preload_pages_count;
+uint32_t non_resident_names_offset;
+uint32_t non_resident_names_length;
+} __attribute__((packed)) le_header_t;
+
+typedef struct {
+uint32_t virtual_size;
+uint32_t reloc_base_addr;
+uint32_t object_flags;
+uint32_t page_table_index;
+uint32_t page_table_entries;
+uint32_t reserved;
+} __attribute__((packed)) object_entry_t;
+
+#define OBJREADABLE   0x0001
+#define OBJWRITEABLE  0x0002
+#define OBJEXECUTABLE 0x0004
+
+typedef struct {
+void *base;
+size_t size;
+uint32_t flags;
+} loaded_object_t;
+
+// ============================================================================
+// Handle Management
+// ============================================================================
+
+#define MAX_HANDLES 256
+
+typedef struct {
+int linux_fd;
+int in_use;
+char path[256];
+} handle_entry_t;
+
+static handle_entry_t handle_table[MAX_HANDLES];
+static int handle_table_initialized = 0;
+
+void init_handle_table() {
+if (handle_table_initialized) return;
+
+for (int i = 0; i < MAX_HANDLES; i++) {
+    handle_table[i].linux_fd = -1;
+    handle_table[i].in_use = 0;
+    handle_table[i].path[0] = '\0';
+}
+
+handle_table[0].linux_fd = 0;
+handle_table[0].in_use = 1;
+handle_table[1].linux_fd = 1;
+handle_table[1].in_use = 1;
+handle_table[2].linux_fd = 2;
+handle_table[2].in_use = 1;
+
+handle_table_initialized = 1;
+}
+
+HFILE allocate_handle(int linux_fd, const char *path) {
+for (int i = 3; i < MAX_HANDLES; i++) {
+if (!handle_table[i].in_use) {
+handle_table[i].linux_fd = linux_fd;
+handle_table[i].in_use = 1;
+strncpy(handle_table[i].path, path ? path : "", sizeof(handle_table[i].path) - 1);
+return i;
+}
+}
+return (HFILE)-1;
+}
+
+int get_linux_fd(HFILE handle) {
+if (handle >= MAX_HANDLES || !handle_table[handle].in_use) {
+return -1;
+}
+return handle_table[handle].linux_fd;
+}
+
+void free_handle(HFILE handle) {
+if (handle < MAX_HANDLES && handle_table[handle].in_use) {
+handle_table[handle].in_use = 0;
+handle_table[handle].linux_fd = -1;
+}
+}
+
+APIRET errno_to_os2(int err) {
+switch (err) {
+case 0: return NO_ERROR;
+case ENOENT: return ERROR_FILE_NOT_FOUND;
+case EACCES: return ERROR_ACCESS_DENIED;
+case EINVAL: return ERROR_INVALID_PARAMETER;
+case EMFILE: return ERROR_TOO_MANY_OPEN_FILES;
+case ENOMEM: return ERROR_NOT_ENOUGH_MEMORY;
+case EBADF: return ERROR_INVALID_HANDLE;
+default: return ERROR_INVALID_FUNCTION;
+}
+}
+
+// ============================================================================
+// OS/2 API Implementations
+// ============================================================================
+
+APIRET APIENTRY DosOpen(PCSZ pszFileName, PHFILE pHandle, PULONG pulAction,
+ULONG ulFileSize, ULONG ulAttribute, ULONG ulOpenFlags,
+ULONG ulOpenMode, PVOID peaop2) {
+init_handle_table();
+printf("[DosOpen] %s\n", pszFileName);
+
+int flags = 0;
+int mode = 0644;
+int access = ulOpenMode & 0x0003;
+
+if (access == OPEN_ACCESS_READONLY) flags = O_RDONLY;
+else if (access == OPEN_ACCESS_WRITEONLY) flags = O_WRONLY;
+else if (access == OPEN_ACCESS_READWRITE) flags = O_RDWR;
+
+int open_action = ulOpenFlags & 0x00FF;
+if (open_action & OPEN_ACTION_CREATE_IF_NEW) {
+    flags |= O_CREAT;
+    if (!(open_action & OPEN_ACTION_OPEN_IF_EXISTS)) {
+        flags |= O_EXCL;
+    }
+}
+if (open_action & OPEN_ACTION_REPLACE_IF_EXISTS) {
+    flags |= O_TRUNC;
+}
+
+int fd = open(pszFileName, flags, mode);
+if (fd < 0) return errno_to_os2(errno);
+
+HFILE os2_handle = allocate_handle(fd, pszFileName);
+if (os2_handle == (HFILE)-1) {
+    close(fd);
+    return ERROR_TOO_MANY_OPEN_FILES;
+}
+
+*pHandle = os2_handle;
+*pulAction = (flags & O_CREAT) ? FILE_CREATED : FILE_EXISTED;
+
+return NO_ERROR;
+}
+
+APIRET APIENTRY DosRead(HFILE hFile, PVOID pBuffer, ULONG ulLength, PULONG pulBytesRead) {
+int fd = get_linux_fd(hFile);
+if (fd < 0) return ERROR_INVALID_HANDLE;
+
+ssize_t bytes = read(fd, pBuffer, ulLength);
+if (bytes < 0) {
+    *pulBytesRead = 0;
+    return errno_to_os2(errno);
+}
+
+*pulBytesRead = bytes;
+return NO_ERROR;
+}
+
+APIRET APIENTRY DosWrite(HFILE hFile, PVOID pBuffer, ULONG ulLength, PULONG pulBytesWritten) {
+int fd = get_linux_fd(hFile);
+if (fd < 0) return ERROR_INVALID_HANDLE;
+
+ssize_t bytes = write(fd, pBuffer, ulLength);
+if (bytes < 0) {
+    *pulBytesWritten = 0;
+    return errno_to_os2(errno);
+}
+
+*pulBytesWritten = bytes;
+return NO_ERROR;
+}
+
+APIRET APIENTRY DosClose(HFILE hFile) {
+int fd = get_linux_fd(hFile);
+if (fd < 0) return ERROR_INVALID_HANDLE;
+
+if (close(fd) < 0) return errno_to_os2(errno);
+free_handle(hFile);
+return NO_ERROR;
+}
+
+APIRET APIENTRY DosSetFilePtr(HFILE hFile, LONG lOffset, ULONG ulOrigin, PULONG pulNewPtr) {
+int fd = get_linux_fd(hFile);
+if (fd < 0) return ERROR_INVALID_HANDLE;
+
+int whence;
+switch (ulOrigin) {
+    case FILE_BEGIN:   whence = SEEK_SET; break;
+    case FILE_CURRENT: whence = SEEK_CUR; break;
+    case FILE_END:     whence = SEEK_END; break;
+    default: return ERROR_INVALID_PARAMETER;
+}
+
+off_t new_pos = lseek(fd, lOffset, whence);
+if (new_pos < 0) return errno_to_os2(errno);
+
+if (pulNewPtr) *pulNewPtr = new_pos;
+return NO_ERROR;
+}
+
+APIRET APIENTRY DosDelete(PCSZ pszFileName) {
+if (unlink(pszFileName) < 0) return errno_to_os2(errno);
+return NO_ERROR;
+}
+
+void APIENTRY DosExit(ULONG ulAction, ULONG ulResult) {
+printf("[DosExit] Code %d\n", ulResult);
+exit(ulResult);
+}
+
+APIRET APIENTRY DosSleep(ULONG ulMilliseconds) {
+usleep(ulMilliseconds * 1000);
+return NO_ERROR;
+}
+
+APIRET APIENTRY DosAllocMem(PVOID* ppBaseAddress, ULONG ulSize, ULONG ulFlags) {
+void *mem = malloc(ulSize);
+if (!mem) return ERROR_NOT_ENOUGH_MEMORY;
+*ppBaseAddress = mem;
+return NO_ERROR;
+}
+
+APIRET APIENTRY DosFreeMem(PVOID pBaseAddress) {
+free(pBaseAddress);
+return NO_ERROR;
+}
+
+APIRET APIENTRY DosGetMessage(PCHAR *ppStrings, ULONG ulStrings, PCHAR pBuffer,
+ULONG ulBufferLength, ULONG ulMsgNumber,
+PCSZ pszMsgFile, PULONG pulMsgLength) {
+// Simplified: just return empty message
+if (pulMsgLength) *pulMsgLength = 0;
+return NO_ERROR;
+}
+
+APIRET APIENTRY DosPutMessage(HFILE hFile, ULONG ulLength, PCHAR pBuffer) {
+ULONG written;
+return DosWrite(hFile, pBuffer, ulLength, &written);
+}
+
+// ============================================================================
+// API Resolution
+// ============================================================================
+
+typedef struct {
+const char *name;
+void *function;
+} api_export_t;
+
+static api_export_t api_exports[] = {
+{ "DOSOPEN", DosOpen },
+{ "DOSREAD", DosRead },
+{ "DOSWRITE", DosWrite },
+{ "DOSCLOSE", DosClose },
+{ "DOSSETFILEPTR", DosSetFilePtr },
+{ "DOSDELETE", DosDelete },
+{ "DOSEXIT", DosExit },
+{ "DOSSLEEP", DosSleep },
+{ "DOSALLOCMEM", DosAllocMem },
+{ "DOSFREEMEM", DosFreeMem },
+{ "DOSGETMESSAGE", DosGetMessage },
+{ "DOSPUTMESSAGE", DosPutMessage },
+{ NULL, NULL }
+};
+
+void* resolve_os2_api(const char *name) {
+// Convert to uppercase for comparison
+char upper[256];
+for (int i = 0; name[i] && i < 255; i++) {
+upper[i] = (name[i] >= 'a' && name[i] <= 'z') ? name[i] - 32 : name[i];
+}
+upper[strlen(name)] = '\0';
+
+for (int i = 0; api_exports[i].name != NULL; i++) {
+    if (strcmp(api_exports[i].name, upper) == 0) {
+        printf("[API] Resolved: %s -> %p\n", name, api_exports[i].function);
+        return api_exports[i].function;
+    }
+}
+
+printf("[API] Unresolved: %s\n", name);
+return NULL;
+}
+
+// ============================================================================
+// Loader
+// ============================================================================
+
+typedef struct {
+uint8_t *file_data;
+size_t file_size;
+le_header_t *le_header;
+object_entry_t *objects;
+loaded_object_t *loaded_objects;
+void *entry_point;
+uint32_t le_offset;
+} os2_exe_t;
+
+uint8_t* read_file(const char *filename, size_t *size) {
+int fd = open(filename, O_RDONLY);
+if (fd < 0) return NULL;
+
+off_t len = lseek(fd, 0, SEEK_END);
+if (len < 0) {
+    close(fd);
+    return NULL;
+}
+lseek(fd, 0, SEEK_SET);
+
+uint8_t *data = malloc(len);
+if (!data || read(fd, data, len) != len) {
+    free(data);
+    close(fd);
+    return NULL;
+}
+
+close(fd);
+*size = len;
+return data;
+}
+
+os2_exe_t* parse_le_exe(const char *filename) {
+os2_exe_t *exe = calloc(1, sizeof(os2_exe_t));
+if (!exe) return NULL;
+
+exe->file_data = read_file(filename, &exe->file_size);
+if (!exe->file_data) {
+    free(exe);
+    return NULL;
+}
+
+mz_header_t *mz = (mz_header_t*)exe->file_data;
+if (mz->e_magic != 0x5A4D) {
+    fprintf(stderr, "Not a valid DOS executable\n");
+    free(exe->file_data);
+    free(exe);
+    return NULL;
+}
+
+exe->le_offset = mz->e_lfanew;
+exe->le_header = (le_header_t*)(exe->file_data + exe->le_offset);
+
+if (exe->le_header->magic != 0x454C && exe->le_header->magic != 0x584C) {
+    fprintf(stderr, "Not a valid LE/LX executable\n");
+    free(exe->file_data);
+    free(exe);
+    return NULL;
+}
+
+printf("LE executable loaded:\n");
+printf("  Objects: %d\n", exe->le_header->object_count);
+printf("  Entry: Object %d, Offset 0x%08x\n", 
+       exe->le_header->eip_object, exe->le_header->eip);
+
+exe->objects = (object_entry_t*)(exe->file_data + exe->le_offset + 
+                                  exe->le_header->object_table_offset);
+
+return exe;
+}
+
+int load_objects(os2_exe_t *exe) {
+exe->loaded_objects = calloc(exe->le_header->object_count, sizeof(loaded_object_t));
+if (!exe->loaded_objects) return -1;
+
+uint32_t data_offset = exe->le_header->data_pages_offset;
+
+printf("\nData pages offset: 0x%x\n", data_offset);
+printf("Page size: 0x%x\n", exe->le_header->page_size);
+printf("File size: 0x%zx\n\n", exe->file_size);
+
+for (uint32_t i = 0; i < exe->le_header->object_count; i++) {
+    object_entry_t *obj = &exe->objects[i];
+    
+    printf("Object %d:\n", i + 1);
+    printf("  Virtual size: 0x%x\n", obj->virtual_size);
+    printf("  Base address: 0x%x\n", obj->reloc_base_addr);
+    printf("  Flags: 0x%x ", obj->object_flags);
+    if (obj->object_flags & OBJREADABLE) printf("R");
+    if (obj->object_flags & OBJWRITEABLE) printf("W");
+    if (obj->object_flags & OBJEXECUTABLE) printf("X");
+    printf("\n");
+    printf("  Page table index: %d\n", obj->page_table_index);
+    printf("  Page table entries: %d\n", obj->page_table_entries);
+    
+    // Determine protection - objects must be readable
+    int prot = PROT_READ;
+    if (obj->object_flags & OBJWRITEABLE) prot |= PROT_WRITE;
+    if (obj->object_flags & OBJEXECUTABLE) prot |= PROT_EXEC;
+    
+    // Allocate memory
+    size_t alloc_size = (obj->virtual_size + 0xFFF) & ~0xFFF;
+    void *mem = mmap(NULL, alloc_size, prot, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    
+    if (mem == MAP_FAILED) {
+        perror("mmap failed");
+        return -1;
+    }
+    
+    printf("  Allocated %zu bytes at %p\n", alloc_size, mem);
+    
+    exe->loaded_objects[i].base = mem;
+    exe->loaded_objects[i].size = alloc_size;
+    exe->loaded_objects[i].flags = obj->object_flags;
+    
+    // Load data from file
+    if (obj->page_table_entries > 0 && obj->page_table_index > 0) {
+        uint32_t page_offset = (obj->page_table_index - 1) * exe->le_header->page_size;
+        uint32_t file_offset = data_offset + page_offset;
+        uint32_t copy_size = obj->virtual_size;
+        
+        printf("  Page offset: 0x%x\n", page_offset);
+        printf("  File offset: 0x%x\n", file_offset);
+        printf("  Copy size: 0x%x\n", copy_size);
+        
+        // Validate file offset
+        if (file_offset >= exe->file_size) {
+            fprintf(stderr, "  WARNING: File offset 0x%x exceeds file size 0x%zx\n", 
+                    file_offset, exe->file_size);
+            continue;
+        }
+        
+        // Adjust copy size if it would exceed file bounds
+        if (file_offset + copy_size > exe->file_size) {
+            copy_size = exe->file_size - file_offset;
+            printf("  Adjusted copy size to 0x%x\n", copy_size);
+        }
+        
+        if (copy_size > 0) {
+            // Make memory writable temporarily if needed
+            if (!(prot & PROT_WRITE)) {
+                mprotect(mem, alloc_size, prot | PROT_WRITE);
+            }
+            
+            memcpy(mem, exe->file_data + file_offset, copy_size);
+            printf("  Copied %d bytes from file\n", copy_size);
+            
+            // Restore original protection
+            if (!(prot & PROT_WRITE)) {
+                mprotect(mem, alloc_size, prot);
+            }
+        }
+    } else {
+        printf("  No pages to load (BSS or empty segment)\n");
+    }
+    printf("\n");
+}
+
+if (exe->le_header->eip_object > 0 && 
+    exe->le_header->eip_object <= exe->le_header->object_count) {
+    exe->entry_point = (uint8_t*)exe->loaded_objects[exe->le_header->eip_object - 1].base + 
+                      exe->le_header->eip;
+    printf("Entry point: %p\n", exe->entry_point);
+}
+
+return 0;
+}
+
+void process_imports(os2_exe_t *exe) {
+if (exe->le_header->imported_modules_count == 0) {
+printf("No imports to process\n");
+return;
+}
+
+printf("\n=== Processing Imports ===\n");
+
+uint8_t *import_mod_table = exe->file_data + exe->le_offset + 
+                            exe->le_header->imported_modules_offset;
+
+// Read module names
+for (uint32_t i = 0; i < exe->le_header->imported_modules_count; i++) {
+    uint8_t name_len = *import_mod_table++;
+    char module_name[256];
+    memcpy(module_name, import_mod_table, name_len);
+    module_name[name_len] = '\0';
+    import_mod_table += name_len;
+    
+    printf("Module %d: %s\n", i + 1, module_name);
+}
+
+printf("Import processing complete (stub implementation)\n");
+}
+
+// ============================================================================
+// Fixup Processing
+// ============================================================================
+
+typedef struct {
+uint8_t *fixup_page_table;
+uint8_t *fixup_record_table;
+} fixup_context_t;
+
+void apply_fixups(os2_exe_t *exe) {
+if (exe->le_header->fixup_page_table_offset == 0) {
+    printf("\nNo fixup table\n");
+    return;
+}
+
+printf("\n=== Processing Fixups ===\n");
+
+// Validate offsets are within file
+uint32_t fixup_page_offset = exe->le_offset + exe->le_header->fixup_page_table_offset;
+uint32_t fixup_rec_offset = exe->le_offset + exe->le_header->fixup_record_table_offset;
+
+if (fixup_page_offset >= exe->file_size || fixup_rec_offset >= exe->file_size) {
+    printf("ERROR: Fixup table offsets exceed file size\n");
+    return;
+}
+
+uint32_t *fixup_page_table = (uint32_t*)(exe->file_data + fixup_page_offset);
+uint8_t *fixup_record_base = exe->file_data + fixup_rec_offset;
+
+uint32_t total_pages = 0;
+for (uint32_t i = 0; i < exe->le_header->object_count; i++) {
+    total_pages += exe->objects[i].page_table_entries;
+}
+
+printf("Total pages: %d\n", total_pages);
+printf("Fixup page table at: 0x%x (file offset 0x%x)\n", 
+       exe->le_header->fixup_page_table_offset, fixup_page_offset);
+printf("Fixup record table at: 0x%x (file offset 0x%x)\n", 
+       exe->le_header->fixup_record_table_offset, fixup_rec_offset);
+printf("Fixup size: 0x%x\n", exe->le_header->fixup_size);
+
+// Check if we have enough space for the page table
+if (fixup_page_offset + (total_pages + 1) * 4 > exe->file_size) {
+    printf("ERROR: Fixup page table exceeds file bounds\n");
+    return;
+}
+
+// Dump first few page table entries
+printf("\nFirst few fixup page table entries:\n");
+for (uint32_t i = 0; i < (total_pages < 5 ? total_pages + 1 : 5); i++) {
+    printf("  Page %d: 0x%08x\n", i, fixup_page_table[i]);
+}
+
+// Dump first 64 bytes of fixup records
+printf("\nFirst 64 bytes of fixup records:\n");
+for (int i = 0; i < 64 && i < (int)exe->le_header->fixup_size; i += 16) {
+    printf("  %04x: ", i);
+    for (int j = 0; j < 16 && i + j < (int)exe->le_header->fixup_size; j++) {
+        printf("%02x ", fixup_record_base[i + j]);
+    }
+    printf("\n");
+}
+
+printf("\nNote: LE fixup format is complex and may vary by compiler.\n");
+printf("This program requires GUI APIs that aren't implemented.\n");
+printf("Skipping full fixup processing to avoid crashes.\n");
+
+// For GUI apps like this, fixups won't help - it needs PM APIs
+// Let's just report what we found
+int import_count = 0;
+for (uint32_t page = 0; page < total_pages; page++) {
+    uint32_t fixup_start = fixup_page_table[page];
+    uint32_t fixup_end = fixup_page_table[page + 1];
+    if (fixup_start < fixup_end) {
+        import_count++;
+    }
+}
+
+printf("\nPages with fixups: %d\n", import_count);
+printf("This is a Presentation Manager GUI application.\n");
+printf("It requires:\n");
+printf("  - PMWIN (Window Manager)\n");
+printf("  - PMSHAPI (Shell APIs)\n");
+printf("  - NLS (National Language Support)\n");
+printf("  - MSG (Message handling)\n");
+printf("\nThese are not implemented. The program will crash immediately.\n");
+}
+
+void execute_os2_program(os2_exe_t *exe) {
+if (!exe->entry_point) {
+fprintf(stderr, "No entry point\n");
+return;
+}
+
+printf("\n=== Executing OS/2 Program ===\n");
+printf("Entry point: %p\n\n", exe->entry_point);
+
+init_handle_table();
+
+// Call the entry point
+void (*entry)() = (void(*)())exe->entry_point;
+entry();
+}
+
+void free_os2_exe(os2_exe_t *exe) {
+if (!exe) return;
+
+if (exe->loaded_objects) {
+    for (uint32_t i = 0; i < exe->le_header->object_count; i++) {
+        if (exe->loaded_objects[i].base) {
+            munmap(exe->loaded_objects[i].base, exe->loaded_objects[i].size);
+        }
+    }
+    free(exe->loaded_objects);
+}
+
+free(exe->file_data);
+free(exe);
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+
+int main(int argc, char **argv) {
+if (argc < 2) {
+fprintf(stderr, "Usage: %s <os2_executable.exe>\n", argv[0]);
+return 1;
+}
+
+printf("OS/2 Loader with API Emulation\n");
+printf("===============================\n\n");
+
+os2_exe_t *exe = parse_le_exe(argv[1]);
+if (!exe) return 1;
+
+if (load_objects(exe) < 0) {
+    fprintf(stderr, "Failed to load objects\n");
+    free_os2_exe(exe);
+    return 1;
+}
+
+process_imports(exe);
+
+// Apply fixups/relocations
+apply_fixups(exe);
+
+printf("\n=== Ready to Execute ===\n");
+execute_os2_program(exe);
+
+free_os2_exe(exe);
+return 0;
+}
