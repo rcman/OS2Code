@@ -1,3 +1,8 @@
+
+<img width="720" height="400" alt="simpleos_v03_screenshot" src="https://github.com/user-attachments/assets/e6b0e200-641f-4aa9-af45-85518cab5f65" />
+
+<BR>
+
 # SimpleOS
 
 ## Project Overview
