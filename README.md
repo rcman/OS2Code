@@ -1,9 +1,3 @@
-# OSTwo_2026 is the newest working code
-
-<BR>
-Here's what's in it.
-
-<BR>
 
 # OS/Two - OS/2-Compatible Operating System
 
