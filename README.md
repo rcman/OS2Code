@@ -7,6 +7,43 @@
 
 ---
 
+## 📂 Current source: [`OSTWO_2026/`](OSTWO_2026/)
+
+**The live, up-to-date source lives in the [`OSTWO_2026/`](OSTWO_2026/) directory.**
+(The `OSTwo_2026/` folder only holds an older zipped snapshot.)
+
+Build & run from there:
+
+```bash
+cd OSTWO_2026
+make            # 32-bit kernel  -> make run
+make kernel64   # 64-bit kernel  -> make run64sh (shell), run64 (apps), run64mt (SMP demo)
+```
+
+### What works now (beyond the v0.3 notes below)
+
+The project has advanced well past this README's original v0.3 description. Highlights:
+
+- **Runs genuine OS/2 apps.** A real LX (Linear eXecutable) loader parses MZ/LX
+  binaries, loads them at their preferred base, applies internal/import fixups,
+  decompresses ITERDATA/ITERDATA2 pages, and resolves DOSCALLS imports. It runs
+  actual **Open Watcom-built OS/2 executables**, up to full C-runtime programs
+  using `printf`, `fopen`/file I/O, and `argv`.
+- **High-resolution desktop out of the box.** A Bochs/QEMU BGA driver programs
+  1024×768×32 directly from protected mode — no GRUB ISO required.
+- **A parallel 64-bit kernel** (`make kernel64`): boots to **x86-64 long mode**
+  (PAE 4-level paging, EFER.LME, 64-bit GDT/IDT), runs **native ELF64 apps** in
+  ring 3, preemptively multitasks, and has a keyboard shell plus a **mouse-driven,
+  windowed OS/2-style desktop** (draggable windows, click-to-raise, close boxes).
+- **OS/2 apps under the 64-bit kernel.** Via 32-bit **compatibility mode**
+  (`CS.L=0` + an `int 0x80` gate), the 64-bit kernel runs the byte-identical OS/2
+  LX binaries — the OS/2 architectural model, one generation up.
+
+See **[`OSTWO_2026/OSTWO_ROADMAP.md`](OSTWO_2026/OSTWO_ROADMAP.md)** for the full,
+phase-by-phase development history.
+
+---
+
 ## What is OS/Two?
 
 **OS/Two** is an open-source operating system designed to be compatible with IBM's OS/2 APIs and executable formats. It's a modern reimplementation that aims to run OS/2 applications while using a clean, modern kernel architecture.
@@ -912,7 +949,7 @@ Copyright (c) 2026 OS/Two Project
 
 ## Contact & Community
 
-- **Repository:** https://github.com/[TBD]/ostwo (GitHub link TBD)
+- **Repository:** https://github.com/rcman/OS2Code
 - **Website:** http://ostwo.org or http://os-two.org (TBD)
 - **Discord:** [Discord server link TBD]
 - **Email:** ostwo-dev@[TBD]
@@ -961,10 +998,10 @@ Copyright (c) 2026 OS/Two Project
 
 ### Step-by-Step Build Instructions
 
-1. **Clone the repository** (when available):
+1. **Clone the repository**:
    ```bash
-   git clone https://github.com/[TBD]/ostwo.git
-   cd ostwo
+   git clone https://github.com/rcman/OS2Code.git
+   cd OS2Code/OSTWO_2026
    ```
 
 2. **Install dependencies** (see Prerequisites section above)
