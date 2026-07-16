@@ -87,6 +87,12 @@ uint32_t vga_get_pixel32(int x, int y);
 // Plot pixel from 32-bit value
 void vga_plot_pixel32(int x, int y, uint32_t color);
 
+// True-color drawing (OS/2 Workplace Shell styling)
+void vga_fill_rect32(int x, int y, int width, int height, uint32_t rgb);
+void vga_bevel32(int x, int y, int w, int h, int raised);
+void vga_draw_char32(int x, int y, char c, uint32_t rgb);
+void vga_draw_string32(int x, int y, const char* str, uint32_t rgb);
+
 // Draw a line (Bresenham's algorithm)
 void vga_draw_line(int x1, int y1, int x2, int y2, uint8_t color);
 

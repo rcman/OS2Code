@@ -83,12 +83,57 @@ void gui_init(void) {
     gui_draw_cursor();
 }
 
+// Draw a Workplace-Shell-style desktop icon glyph (32 wide) at (x,y).
+static void gui_desktop_icon(int x, int y, int type, const char* label) {
+    switch (type) {
+        case 0:  // OS/2 System - a monitor
+            vga_fill_rect32(x + 3, y + 2, 26, 18, 0x303030);
+            vga_fill_rect32(x + 5, y + 4, 22, 14, 0x2060B0);
+            vga_fill_rect32(x + 10, y + 22, 12, 4, 0x505050);
+            vga_fill_rect32(x + 6, y + 26, 20, 3, 0x808080);
+            break;
+        case 1:  // Drives - a disk stack
+            for (int i = 0; i < 3; i++) {
+                vga_fill_rect32(x + 2, y + 2 + i * 9, 28, 7, 0xC8C8C8);
+                vga_bevel32(x + 2, y + 2 + i * 9, 28, 7, 1);
+                vga_fill_rect32(x + 5, y + 5 + i * 9, 10, 2, 0x606060);
+                vga_fill_rect32(x + 25, y + 4 + i * 9, 3, 3, 0x30B030);
+            }
+            break;
+        case 2:  // Programs - yellow folder
+            vga_fill_rect32(x + 2, y + 8, 28, 20, 0xE0C040);
+            vga_fill_rect32(x + 2, y + 5, 12, 5, 0xE0C040);
+            vga_bevel32(x + 2, y + 8, 28, 20, 1);
+            break;
+        case 3:  // Information - blue folder with i
+            vga_fill_rect32(x + 2, y + 8, 28, 20, 0x5090D0);
+            vga_fill_rect32(x + 2, y + 5, 12, 5, 0x5090D0);
+            vga_bevel32(x + 2, y + 8, 28, 20, 1);
+            vga_draw_string32(x + 13, y + 13, "i", 0xFFFFFF);
+            break;
+        case 4:  // Shredder
+            vga_fill_rect32(x + 5, y + 4, 22, 6, 0x808080);
+            vga_bevel32(x + 5, y + 4, 22, 6, 1);
+            for (int i = 0; i < 5; i++)
+                vga_fill_rect32(x + 8 + i * 4, y + 12, 2, 14, 0xB0B0B0);
+            vga_fill_rect32(x + 6, y + 26, 20, 3, 0x606060);
+            break;
+    }
+    int len = 0; while (label[len]) len++;
+    int lx = x + 16 - len * 4; if (lx < 2) lx = 2;
+    vga_draw_string32(lx, y + 34, label, 0xE8F0F0);
+}
+
 // Draw desktop background
 void gui_draw_desktop(void) {
-    if (vga_get_mode_info()->bpp == 32 && desktop.desktop_color == COLOR_DESKTOP) {
-        // True-color mode: smooth teal gradient instead of flat cyan
-        vga_fill_gradient(0, 0, gui_screen_w(), gui_screen_h(),
-                          0x1A6B7A, 0x062830);
+    if (vga_get_mode_info()->bpp == 32) {
+        // OS/2 Warp teal desktop with Workplace Shell object icons
+        vga_fill_rect32(0, 0, gui_screen_w(), gui_screen_h(), 0x2E8B8B);
+        gui_desktop_icon(20,  30, 0, "OS/2 System");
+        gui_desktop_icon(20, 120, 1, "Drives");
+        gui_desktop_icon(20, 210, 2, "Programs");
+        gui_desktop_icon(20, 300, 3, "Information");
+        gui_desktop_icon(20, 390, 4, "Shredder");
     } else {
         vga_clear_screen(desktop.desktop_color);
     }
@@ -240,58 +285,50 @@ void gui_draw_window(window_t* window) {
     int w = window->width;
     int h = window->height;
 
-    // Draw window background
-    vga_fill_rect(x, y, w, h, window->bg_color);
+    int focused = (window->flags & WINDOW_FOCUSED) != 0;
 
-    // Draw window frame
-    uint8_t frame_color = (window->flags & WINDOW_FOCUSED) ? COLOR_WINDOW_FRAME : 8;
-    vga_draw_rect(x, y, w, h, frame_color);
+    // OS/2 Workplace Shell window: raised gray frame around a sunken
+    // content area, with a blue title bar (muted when inactive).
+    vga_fill_rect32(x, y, w, h, 0xBDBDBD);
+    vga_bevel32(x, y, w, h, 1);
+    vga_fill_rect32(x + 2, y + 13, w - 4, h - 15, 0x0C1014);   // content bg
+    vga_bevel32(x + 2, y + 12, w - 4, h - 14, 0);              // sunken content
 
-    // Draw title bar
-    vga_fill_rect(x + 1, y + 1, w - 2, 10, COLOR_WINDOW_TITLE_BAR);
+    // Title bar
+    vga_fill_rect32(x + 2, y + 1, w - 4, 11, focused ? 0x00308A : 0x64789A);
 
-    // Draw title text (left-aligned to make room for buttons)
-    int title_x = x + 4;
-    int title_y = y + 2;
-    vga_draw_string(title_x, title_y, window->title, COLOR_WINDOW_TITLE_TEXT);
+    // System-menu box (left) - OS/2's title-bar icon
+    vga_fill_rect32(x + 3, y + 2, 9, 9, 0xBDBDBD);
+    vga_bevel32(x + 3, y + 2, 9, 9, 1);
+    vga_fill_rect32(x + 5, y + 6, 5, 2, 0x303030);
 
-    // Draw window control buttons (right side of title bar)
+    // Title text
+    vga_draw_string32(x + 15, y + 3, window->title, 0xFFFFFF);
+
+    // Control buttons (right) - gray beveled, OS/2 style. Geometry
+    // matches the *_button_hit_test() functions exactly.
     int button_size = 10;
     int button_y = y + 1;
-    int button_x = x + w - 4;  // Start from right
+    int button_x = x + w - 4;
 
-    // Close button (X) - rightmost
     if (window->flags & WINDOW_CLOSABLE) {
         button_x -= button_size;
-        vga_fill_rect(button_x, button_y, button_size, button_size, 12);  // Red
-        vga_draw_rect(button_x, button_y, button_size, button_size, 0);   // Black border
-        // Draw X
-        vga_draw_char(button_x + 1, button_y + 1, 'X', 15);
+        vga_fill_rect32(button_x, button_y, button_size, button_size, 0xBDBDBD);
+        vga_bevel32(button_x, button_y, button_size, button_size, 1);
+        vga_draw_char32(button_x + 1, button_y + 1, 'x', 0x202020);
     }
-
-    // Maximize button (□) - middle
     if (window->flags & WINDOW_MAXIMIZABLE) {
         button_x -= (button_size + 2);
-        vga_fill_rect(button_x, button_y, button_size, button_size, 10);  // Green
-        vga_draw_rect(button_x, button_y, button_size, button_size, 0);   // Black border
-        // Draw square symbol
-        vga_draw_rect(button_x + 3, button_y + 3, 4, 4, 15);
+        vga_fill_rect32(button_x, button_y, button_size, button_size, 0xBDBDBD);
+        vga_bevel32(button_x, button_y, button_size, button_size, 1);
+        vga_fill_rect32(button_x + 2, button_y + 2, 6, 6, 0xBDBDBD);
+        vga_bevel32(button_x + 2, button_y + 2, 6, 6, 1);      // maximize square
     }
-
-    // Minimize button (_) - leftmost of buttons
     if (window->flags & WINDOW_MINIMIZABLE) {
         button_x -= (button_size + 2);
-        vga_fill_rect(button_x, button_y, button_size, button_size, 14);  // Yellow
-        vga_draw_rect(button_x, button_y, button_size, button_size, 0);   // Black border
-        // Draw minus sign
-        for (int i = 0; i < 6; i++) {
-            vga_plot_pixel(button_x + 2 + i, button_y + 5, 0);
-        }
-    }
-
-    // Draw separator line below title bar
-    for (int i = x + 2; i < x + w - 2; i++) {
-        vga_plot_pixel(i, y + 12, frame_color);
+        vga_fill_rect32(button_x, button_y, button_size, button_size, 0xBDBDBD);
+        vga_bevel32(button_x, button_y, button_size, button_size, 1);
+        vga_fill_rect32(button_x + 2, button_y + 6, 6, 2, 0x303030);  // minimize
     }
 
     // Draw window content
@@ -442,43 +479,32 @@ void gui_draw_taskbar(void) {
     int screen_height = gui_screen_h();
     int taskbar_y = screen_height - TASKBAR_HEIGHT;
 
-    // Draw taskbar background
-    vga_fill_rect(0, taskbar_y, screen_width, TASKBAR_HEIGHT, 8);  // Dark gray
-    vga_draw_rect(0, taskbar_y, screen_width, TASKBAR_HEIGHT, 15); // White border
+    // OS/2 gray taskbar with a raised bevel
+    vga_fill_rect32(0, taskbar_y, screen_width, TASKBAR_HEIGHT, 0xBDBDBD);
+    vga_bevel32(0, taskbar_y, screen_width, TASKBAR_HEIGHT, 1);
 
-    // Draw Start button
-    int start_button_width = 60;
-    vga_fill_rect(2, taskbar_y + 2, start_button_width, TASKBAR_HEIGHT - 4, 2);  // Green
-    vga_draw_rect(2, taskbar_y + 2, start_button_width, TASKBAR_HEIGHT - 4, 15);
-    vga_draw_string(10, taskbar_y + 10, "Start", 15);
+    // OS/2 System button (Start)
+    int start_button_width = 90;
+    vga_fill_rect32(4, taskbar_y + 4, start_button_width, TASKBAR_HEIGHT - 8, 0xBDBDBD);
+    vga_bevel32(4, taskbar_y + 4, start_button_width, TASKBAR_HEIGHT - 8, 1);
+    vga_draw_string32(12, taskbar_y + 11, "OS/2 System", 0x000000);
 
-    // Draw window buttons
+    // Window buttons
     int button_x = start_button_width + 4 + TASKBAR_BUTTON_SPACING;
     for (int i = 0; i < desktop.num_windows; i++) {
         window_t* win = &desktop.windows[i];
-
-        // Button background (different color if focused or hidden)
-        uint8_t bg_color = 7;  // Light gray
-        if (i == desktop.focused_window && (win->flags & WINDOW_VISIBLE)) {
-            bg_color = 11;  // Light cyan (focused)
-        } else if (!(win->flags & WINDOW_VISIBLE)) {
-            bg_color = 8;   // Dark gray (minimized)
-        }
-
-        vga_fill_rect(button_x, taskbar_y + 2, TASKBAR_BUTTON_WIDTH, TASKBAR_HEIGHT - 4, bg_color);
-        vga_draw_rect(button_x, taskbar_y + 2, TASKBAR_BUTTON_WIDTH, TASKBAR_HEIGHT - 4, 0);
-
-        // Draw window title (truncated to fit)
-        vga_draw_string(button_x + 4, taskbar_y + 10, win->title, 0);
-
+        int focused = (i == desktop.focused_window && (win->flags & WINDOW_VISIBLE));
+        vga_fill_rect32(button_x, taskbar_y + 4, TASKBAR_BUTTON_WIDTH, TASKBAR_HEIGHT - 8, 0xBDBDBD);
+        vga_bevel32(button_x, taskbar_y + 4, TASKBAR_BUTTON_WIDTH, TASKBAR_HEIGHT - 8, !focused);
+        vga_draw_string32(button_x + 6, taskbar_y + 11, win->title, 0x000000);
         button_x += TASKBAR_BUTTON_WIDTH + TASKBAR_BUTTON_SPACING;
     }
 
-    // Draw system tray area (right side)
-    int systray_x = screen_width - 100;
-    vga_fill_rect(systray_x, taskbar_y + 2, 98, TASKBAR_HEIGHT - 4, 8);
-    vga_draw_rect(systray_x, taskbar_y + 2, 98, TASKBAR_HEIGHT - 4, 15);
-    vga_draw_string(systray_x + 10, taskbar_y + 10, "OS/Two", 15);
+    // System tray (right)
+    int systray_x = screen_width - 104;
+    vga_fill_rect32(systray_x, taskbar_y + 4, 100, TASKBAR_HEIGHT - 8, 0xBDBDBD);
+    vga_bevel32(systray_x, taskbar_y + 4, 100, TASKBAR_HEIGHT - 8, 0);
+    vga_draw_string32(systray_x + 26, taskbar_y + 11, "OS/Two", 0x000000);
 }
 
 // Show taskbar

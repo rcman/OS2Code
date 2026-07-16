@@ -288,6 +288,44 @@ uint32_t vga_get_pixel32(int x, int y) {
     }
 }
 
+// True-color filled rectangle (32-bit mode). In 8-bit mode it maps the
+// RGB to the nearest low palette index so callers stay mode-agnostic.
+void vga_fill_rect32(int x, int y, int width, int height, uint32_t rgb) {
+    int x0 = x < 0 ? 0 : x;
+    int y0 = y < 0 ? 0 : y;
+    int x1 = x + width;  if (x1 > (int)current_mode.width)  x1 = current_mode.width;
+    int y1 = y + height; if (y1 > (int)current_mode.height) y1 = current_mode.height;
+    if (x0 >= x1 || y0 >= y1) return;
+
+    uint8_t* fb = double_buffer_enabled ? back_buffer : current_mode.framebuffer;
+
+    if (current_mode.bpp == 32) {
+        for (int j = y0; j < y1; j++) {
+            uint32_t* row = (uint32_t*)(fb + j * current_mode.pitch) + x0;
+            for (int i = x1 - x0; i > 0; i--) *row++ = rgb;
+        }
+    } else {
+        // Coarse RGB -> 16-color index approximation
+        uint8_t r = (rgb >> 16) & 0xFF, g = (rgb >> 8) & 0xFF, b = rgb & 0xFF;
+        uint8_t idx = ((r > 0x80) << 2) | ((g > 0x80) << 1) | (b > 0x80);
+        if (r > 0xC0 || g > 0xC0 || b > 0xC0) idx |= 8;
+        for (int j = y0; j < y1; j++) {
+            uint8_t* row = fb + j * current_mode.pitch + x0;
+            for (int i = x1 - x0; i > 0; i--) *row++ = idx;
+        }
+    }
+}
+
+// A raised (or sunken) 3D bevel - the OS/2 Workplace Shell frame look.
+void vga_bevel32(int x, int y, int w, int h, int raised) {
+    uint32_t tl = raised ? 0xF0F0F0 : 0x707070;
+    uint32_t br = raised ? 0x707070 : 0xF0F0F0;
+    vga_fill_rect32(x, y, w, 1, tl);
+    vga_fill_rect32(x, y, 1, h, tl);
+    vga_fill_rect32(x, y + h - 1, w, 1, br);
+    vga_fill_rect32(x + w - 1, y, 1, h, br);
+}
+
 // Plot pixel from 32-bit value
 void vga_plot_pixel32(int x, int y, uint32_t color) {
     if (x < 0 || x >= (int)current_mode.width || y < 0 || y >= (int)current_mode.height) {
@@ -476,6 +514,22 @@ void vga_draw_string(int x, int y, const char* str, uint8_t color) {
         cx += 8;
         str++;
     }
+}
+
+// True-color character/string (8x8 font), for OS/2 Workplace Shell styling.
+void vga_draw_char32(int x, int y, char c, uint32_t rgb) {
+    if (c < 0 || c >= 128) return;
+    for (int row = 0; row < 8; row++) {
+        uint8_t byte = font_8x8[(int)c][row];
+        for (int col = 0; col < 8; col++) {
+            if (byte & (1 << col)) vga_plot_pixel32(x + col, y + row, rgb);
+        }
+    }
+}
+
+void vga_draw_string32(int x, int y, const char* str, uint32_t rgb) {
+    int cx = x;
+    while (*str) { vga_draw_char32(cx, y, *str, rgb); cx += 8; str++; }
 }
 
 // Double buffering

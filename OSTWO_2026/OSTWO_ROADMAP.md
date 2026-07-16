@@ -674,6 +674,12 @@ Goal: 64-bit kernel that runs 64-bit ELF apps natively AND keeps running
       behind it. Note: QEMU relative-pointer events are only 1:1 in
       small steps (large deltas get acceleration) - relevant for
       scripted QMP testing, not real use ✅
+- [x] Workplace Shell look on the 32-bit desktop too (July 2026):
+      added true-color drawing helpers (vga_fill_rect32/bevel32/
+      draw_string32) and restyled gui.c - teal Warp desktop with WPS
+      object icons, OS/2 window chrome (system-menu box, blue title bar,
+      gray beveled min/max/close, raised frame), gray beveled taskbar.
+      Button hit-test geometry preserved, so drag/controls still work. ✅
 - [x] B.9 OS/2 WORKPLACE SHELL DESKTOP + APP SDK (July 2026):
       - Desktop redesigned to look like OS/2 Warp: teal desktop with
         Workplace-Shell icons down the left (OS/2 System, Drives,
