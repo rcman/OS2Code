@@ -674,9 +674,20 @@ Goal: 64-bit kernel that runs 64-bit ELF apps natively AND keeps running
       behind it. Note: QEMU relative-pointer events are only 1:1 in
       small steps (large deltas get acceleration) - relevant for
       scripted QMP testing, not real use ✅
+- [x] B.9 OS/2 WORKPLACE SHELL DESKTOP + APP SDK (July 2026):
+      - Desktop redesigned to look like OS/2 Warp: teal desktop with
+        Workplace-Shell icons down the left (OS/2 System, Drives,
+        Programs, Information, Shredder), double-click to open folder
+        windows, and authentic OS/2 window chrome (system-menu box,
+        min/max boxes, raised 3D bevel frame, active/inactive titles).
+      - `sdk/` - a real application SDK: os2.h (OS/2 API + helpers),
+        build-app.sh (wcl386 -bt=os2 -l=os2v2 -> LX .exe), embed-app.py
+        (embed into RamFS), three worked examples (hello/fileio/clock),
+        and a tutorial README. Verified: an SDK-built hello.exe runs on
+        the kernel and prints its output. ✅
 - [ ] Future: real app windows (shell/terminal in a window) on the
-      64-bit desktop; Start menu; port the full 32-bit GUI; boot polish
-      (memory-map handoff, higher-half link)
+      64-bit desktop; Start menu; disk-backed FS so apps load without
+      recompiling the kernel; port the full 32-bit GUI; boot polish
 - [ ] B.2 Memory: 4-level page tables (PML4), higher-half kernel at
       0xFFFFFFFF80000000, rewrite pmm/vmm for 64-bit physical addresses
 - [ ] B.3 CPU structures: 64-bit GDT/IDT/TSS (IST stacks), rewrite

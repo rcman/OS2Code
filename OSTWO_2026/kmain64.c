@@ -780,8 +780,68 @@ static const uint8_t cursor_bm[CUR_H][CUR_W] = {
 // dragging leaves no trails and needs no per-window erase bookkeeping.
 static uint32_t bg_buffer[SCREEN_W * SCREEN_H];
 
+// OS/2 Workplace Shell palette
+#define WPS_GRAY   0xBDBDBD   // window body / frame
+#define WPS_LIGHT  0xF0F0F0   // top-left bevel highlight
+#define WPS_DARK   0x707070   // bottom-right bevel shadow
+#define WPS_TITLE  0x00308A   // active title bar (OS/2 blue)
+#define WPS_TITLE2 0x7C90B0   // inactive title bar
+#define WPS_DESK   0x2E8B8B   // teal desktop (Warp default)
+
+// A 3D raised bevel (light top/left, dark bottom/right) - the OS/2 look.
+static void bevel(int x, int y, int w, int h, int raised) {
+    uint32_t tl = raised ? WPS_LIGHT : WPS_DARK;
+    uint32_t br = raised ? WPS_DARK : WPS_LIGHT;
+    fill_rect(x, y, w, 1, tl);
+    fill_rect(x, y, 1, h, tl);
+    fill_rect(x, y + h - 1, w, 1, br);
+    fill_rect(x + w - 1, y, 1, h, br);
+}
+
+// ---- desktop icons (Workplace Shell objects) ----
+enum { IC_SYSTEM, IC_DRIVES, IC_PROGRAMS, IC_INFO, IC_SHREDDER };
+
+// Draw a 32-wide Workplace-Shell-style icon glyph at (x,y).
+static void draw_icon_glyph(int x, int y, int type) {
+    switch (type) {
+        case IC_SYSTEM:      // a small computer/monitor
+            fill_rect(x + 3, y + 2, 26, 18, 0x303030);
+            fill_rect(x + 5, y + 4, 22, 14, 0x2060B0);
+            fill_rect(x + 10, y + 22, 12, 4, 0x505050);
+            fill_rect(x + 6, y + 26, 20, 3, 0x707070);
+            break;
+        case IC_DRIVES:      // a stack of disk drives
+            for (int i = 0; i < 3; i++) {
+                fill_rect(x + 2, y + 2 + i * 9, 28, 7, 0xC8C8C8);
+                bevel(x + 2, y + 2 + i * 9, 28, 7, 1);
+                fill_rect(x + 5, y + 5 + i * 9, 10, 2, 0x606060);
+                fill_rect(x + 25, y + 4 + i * 9, 3, 3, 0x30B030);
+            }
+            break;
+        case IC_PROGRAMS:    // yellow folder
+        case IC_INFO:
+            fill_rect(x + 2, y + 8, 28, 20, type == IC_INFO ? 0x5090D0 : 0xE0C040);
+            fill_rect(x + 2, y + 5, 12, 5, type == IC_INFO ? 0x5090D0 : 0xE0C040);
+            bevel(x + 2, y + 8, 28, 20, 1);
+            if (type == IC_INFO) draw_text(x + 13, y + 13, "i", 0xFFFFFF);
+            break;
+        case IC_SHREDDER:    // a shredder / trash
+            fill_rect(x + 5, y + 4, 22, 6, 0x808080);
+            bevel(x + 5, y + 4, 22, 6, 1);
+            for (int i = 0; i < 5; i++) fill_rect(x + 8 + i * 4, y + 12, 2, 14, 0xB0B0B0);
+            fill_rect(x + 6, y + 26, 20, 3, 0x606060);
+            break;
+    }
+}
+
+typedef struct { int x, y; const char* label; int type; int opens; } icon_t;
+static icon_t icons[6];
+static int nicons;
+static int sel_icon = -1;
+
+// ---- windows ----
 #define MAX_WINS 6
-#define TITLE_H  23
+#define TITLE_H  22
 typedef struct {
     int x, y, w, h;
     const char* title;
@@ -791,16 +851,18 @@ typedef struct {
 } win_t;
 
 static win_t wins[MAX_WINS];
-static int zorder[MAX_WINS];   // bottom .. top
+static int zorder[MAX_WINS];
 static int nwins;
 
 static void gui_taskbar_to(uint32_t* target) {
     uint32_t* real = fb; fb = target;
-    fill_rect(0, SCREEN_H - 30, SCREEN_W, 30, 0xB0B0B0);
-    fill_rect(0, SCREEN_H - 30, SCREEN_W, 2, 0xE0E0E0);
-    fill_rect(6, SCREEN_H - 25, 72, 20, 0x008000);   // Start button
-    draw_text(18, SCREEN_H - 19, "Start", 0xFFFFFF);
-    fill_rect(SCREEN_W - 92, SCREEN_H - 25, 86, 20, 0x909090);
+    fill_rect(0, SCREEN_H - 30, SCREEN_W, 30, WPS_GRAY);
+    bevel(0, SCREEN_H - 30, SCREEN_W, 30, 1);
+    fill_rect(6, SCREEN_H - 25, 96, 20, WPS_GRAY);
+    bevel(6, SCREEN_H - 25, 96, 20, 1);
+    draw_text(14, SCREEN_H - 19, "OS/2 System", 0x000000);
+    fill_rect(SCREEN_W - 96, SCREEN_H - 25, 90, 20, WPS_GRAY);
+    bevel(SCREEN_W - 96, SCREEN_H - 25, 90, 20, 0);
     char t[24]; int n = 0;
     const char* p = "up "; while (*p) t[n++] = *p++;
     uint64_t v = timer_ticks / 100; char d[12]; int i = 0;
@@ -808,35 +870,56 @@ static void gui_taskbar_to(uint32_t* target) {
     while (v) { d[i++] = '0' + v % 10; v /= 10; }
     while (i) t[n++] = d[--i];
     t[n++] = 's'; t[n] = 0;
-    draw_text(SCREEN_W - 86, SCREEN_H - 19, t, 0x000000);
+    draw_text(SCREEN_W - 88, SCREEN_H - 19, t, 0x000000);
     fb = real;
 }
 
-// Build the static desktop background into bg_buffer.
+// Build the static desktop: teal background, icons, taskbar.
 static void gui_build_bg(void) {
     uint32_t* real = fb; fb = bg_buffer;
-    gradient(0x1A6B7A, 0x062830);
-    fill_rect(300, 40, 424, 3, 0xE0E0E0);
-    draw_text2x(316, 60, "OS/Two Desktop", 0xFFFFFF);
-    draw_text(316, 96, "64-bit edition - drag the windows, click to raise, x to close", 0xD8F0F0);
-    fill_rect(300, 116, 424, 2, 0xE0E0E0);
+    for (int i = 0; i < SCREEN_W * SCREEN_H; i++) bg_buffer[i] = WPS_DESK;
+    // Desktop icons down the left edge, Workplace-Shell style
+    for (int i = 0; i < nicons; i++) {
+        if (sel_icon == i) {
+            fill_rect(icons[i].x - 4, icons[i].y - 4, 40, 48, 0x1F5F8F);
+        }
+        draw_icon_glyph(icons[i].x, icons[i].y, icons[i].type);
+        // centered-ish label under the icon
+        int len = 0; const char* s = icons[i].label; while (s[len]) len++;
+        int lx = icons[i].x + 16 - len * 4;
+        if (lx < 2) lx = 2;
+        draw_text(lx, icons[i].y + 34, icons[i].label,
+                  sel_icon == i ? 0xFFFFFF : 0xE8F0F0);
+    }
     fb = real;
     gui_taskbar_to(bg_buffer);
 }
 
-// Draw one window (frame, title bar, close box, body) to the framebuffer.
-// `focused` gives the top window a brighter title bar.
+// An OS/2-style window: raised gray frame, system-menu box (double-click
+// to close), title bar, minimize/maximize buttons, body text.
 static void gui_draw_win(const win_t* wn, int focused) {
     int x = wn->x, y = wn->y, w = wn->w, h = wn->h;
-    fill_rect(x, y, w, h, 0xC0C0C0);
-    fill_rect(x + 2, y + 2, w - 4, h - 4, 0x101820);          // body
-    fill_rect(x + 2, y + 2, w - 4, TITLE_H - 2,
-              focused ? 0x0000C0 : 0x004070);                 // title bar
-    draw_text(x + 8, y + 9, wn->title, 0xFFFFFF);
-    fill_rect(x + w - 20, y + 5, 14, 14, 0xC0C0C0);           // close box
-    draw_text(x + w - 17, y + 7, "x", 0x000000);
+    fill_rect(x, y, w, h, WPS_GRAY);
+    bevel(x, y, w, h, 1);
+    bevel(x + 3, y + TITLE_H + 3, w - 6, h - TITLE_H - 6, 0);  // sunken body
+    fill_rect(x + 4, y + TITLE_H + 4, w - 8, h - TITLE_H - 8, 0x1A1A1A);
+    // title bar
+    fill_rect(x + 3, y + 3, w - 6, TITLE_H - 3, focused ? WPS_TITLE : WPS_TITLE2);
+    // system-menu box (left)
+    fill_rect(x + 4, y + 4, 16, TITLE_H - 5, WPS_GRAY);
+    bevel(x + 4, y + 4, 16, TITLE_H - 5, 1);
+    fill_rect(x + 8, y + 10, 8, 3, 0x303030);
+    draw_text(x + 26, y + 8, wn->title, 0xFFFFFF);
+    // minimize + maximize boxes (right)
+    fill_rect(x + w - 38, y + 4, 16, TITLE_H - 5, WPS_GRAY);
+    bevel(x + w - 38, y + 4, 16, TITLE_H - 5, 1);
+    fill_rect(x + w - 34, y + 15, 8, 2, 0x303030);            // minimize
+    fill_rect(x + w - 20, y + 4, 16, TITLE_H - 5, WPS_GRAY);
+    bevel(x + w - 20, y + 4, 16, TITLE_H - 5, 1);
+    fill_rect(x + w - 17, y + 7, 10, 9, WPS_GRAY);
+    bevel(x + w - 17, y + 7, 10, 9, 1);                       // maximize
     for (int i = 0; i < wn->nbody; i++) {
-        draw_text(x + 12, y + TITLE_H + 8 + i * 18, wn->body[i], 0xD0E0E0);
+        draw_text(x + 14, y + TITLE_H + 12 + i * 18, wn->body[i], 0xD8E4E4);
     }
 }
 
@@ -853,7 +936,6 @@ static void gui_draw_cursor(int cx, int cy) {
     }
 }
 
-// Composite the whole screen: background, windows (bottom->top), cursor.
 static void gui_compose(void) {
     for (int i = 0; i < SCREEN_W * SCREEN_H; i++) fb[i] = bg_buffer[i];
     for (int z = 0; z < nwins; z++) {
@@ -870,7 +952,6 @@ static void gui_raise(int wi) {
     zorder[nwins - 1] = wi;
 }
 
-// Topmost shown window whose frame contains (px,py), or -1.
 static int gui_hit(int px, int py) {
     for (int z = nwins - 1; z >= 0; z--) {
         int wi = zorder[z];
@@ -883,34 +964,61 @@ static int gui_hit(int px, int py) {
     return -1;
 }
 
+// Which desktop icon (if any) is under (px,py)?
+static int gui_icon_hit(int px, int py) {
+    for (int i = 0; i < nicons; i++) {
+        if (px >= icons[i].x - 4 && px < icons[i].x + 36 &&
+            py >= icons[i].y - 4 && py < icons[i].y + 44) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 extern char kbd64_getchar(void);
 extern int kbd64_haskey(void);
 
-// Enter the graphical desktop with a live window manager.
-// Returns when the user presses Esc.
+// Enter the OS/2-style Workplace Shell desktop. Returns on Esc.
 static void gui64_run(void) {
     if (!fb) return;
     mouse64_init();
 
-    // Window set
-    nwins = 0;
-    wins[0] = (win_t){ 120, 150, 430, 210, "System Information", {
-        "OS/Two 64-bit (Phase B.8)",
+    // Workplace Shell objects (desktop icons)
+    icons[0] = (icon_t){ 30,  40, "OS/2 System",  IC_SYSTEM,   0 };
+    icons[1] = (icon_t){ 30, 130, "Drives",       IC_DRIVES,   1 };
+    icons[2] = (icon_t){ 30, 220, "Programs",     IC_PROGRAMS, 2 };
+    icons[3] = (icon_t){ 30, 310, "Information",  IC_INFO,     3 };
+    icons[4] = (icon_t){ 30, 400, "Shredder",     IC_SHREDDER, 4 };
+    nicons = 5;
+    sel_icon = -1;
+
+    // Windows opened by double-clicking icons (start hidden)
+    wins[0] = (win_t){ 200, 120, 440, 210, "OS/2 System", {
+        "OS/Two 64-bit - Workplace Shell",
         "x86-64 long mode, ring-3 userspace",
-        "PAE 4-level paging (2MB + 4KB)",
-        "Preemptive scheduler @ 100 Hz",
-        "ELF64 + OS/2 LX (compat mode)",
-        "PS/2 keyboard + mouse, window manager" }, 6, 1 };
-    wins[1] = (win_t){ 470, 300, 360, 150, "Welcome", {
-        "Drag me by the title bar.",
-        "Click to raise me to the front.",
-        "Press the [x] to close me.",
-        "Both worlds, one kernel." }, 4, 1 };
-    wins[2] = (win_t){ 260, 230, 320, 130, "About", {
-        "The OS/2 look, natively on the",
-        "64-bit OS/Two kernel.",
-        "Esc returns to the shell." }, 3, 1 };
-    nwins = 3;
+        "PAE 4-level paging, preemptive scheduler",
+        "Native ELF64 apps + OS/2 LX (compat mode)",
+        "Double-click desktop icons to open folders.",
+        "Drag title bars; sys-menu box (dbl-click) closes." }, 6, 0 };
+    wins[1] = (win_t){ 260, 170, 380, 150, "Drives", {
+        "C: OS2BOOT   (RamFS)",
+        "A: Floppy    (empty)",
+        "X: Network   (offline)",
+        "Double-click a drive to browse (demo)." }, 4, 0 };
+    wins[2] = (win_t){ 300, 200, 400, 160, "Programs", {
+        "Command Shell   - the OS2-64> prompt",
+        "System Monitor  - tasks and memory",
+        "OS/2 App Sample - hello_os2.exe (LX)",
+        "See sdk/ to build your own apps." }, 4, 0 };
+    wins[3] = (win_t){ 320, 150, 400, 150, "Information", {
+        "OS/Two: an OS/2-compatible OS that also",
+        "runs native 64-bit apps.",
+        "Both worlds, one kernel.",
+        "Press Esc to return to the shell." }, 4, 0 };
+    wins[4] = (win_t){ 360, 240, 340, 110, "Shredder", {
+        "Drag objects here to discard them.",
+        "(The Shredder is empty.)" }, 2, 0 };
+    nwins = 5;
     for (int i = 0; i < nwins; i++) zorder[i] = i;
 
     gui_build_bg();
@@ -919,6 +1027,8 @@ static void gui64_run(void) {
     int dragging = -1, drag_dx = 0, drag_dy = 0;
     int prev_buttons = 0;
     uint64_t last_clock = timer_ticks / 100;
+    uint64_t last_click_tick = 0;
+    int last_click_icon = -1;
 
     for (;;) {
         __asm__ volatile("sti; hlt");
@@ -933,18 +1043,38 @@ static void gui64_run(void) {
             if (wi >= 0) {
                 win_t* wn = &wins[wi];
                 gui_raise(wi);
-                // close box?
-                if (mouse_x >= wn->x + wn->w - 20 && mouse_x < wn->x + wn->w - 6 &&
-                    mouse_y >= wn->y + 5 && mouse_y < wn->y + 19) {
+                // system-menu box: double-click closes (OS/2 behavior)
+                if (mouse_x >= wn->x + 4 && mouse_x < wn->x + 20 &&
+                    mouse_y >= wn->y + 4 && mouse_y < wn->y + TITLE_H) {
                     wn->shown = 0;
-                } else if (mouse_y < wn->y + TITLE_H) {     // title bar -> drag
+                } else if (mouse_x >= wn->x + wn->w - 38 &&
+                           mouse_x < wn->x + wn->w - 22 &&
+                           mouse_y < wn->y + TITLE_H) {
+                    wn->shown = 0;               // minimize == hide (demo)
+                } else if (mouse_y < wn->y + TITLE_H) {
                     dragging = wi;
                     drag_dx = mouse_x - wn->x;
                     drag_dy = mouse_y - wn->y;
                 }
                 need_compose = 1;
+            } else {
+                // Desktop / icon click
+                int ic = gui_icon_hit(mouse_x, mouse_y);
+                sel_icon = ic;
+                if (ic >= 0) {
+                    uint64_t now_t = timer_ticks;
+                    if (last_click_icon == ic && now_t - last_click_tick < 45) {
+                        int wid = icons[ic].opens;   // double-click -> open
+                        wins[wid].shown = 1;
+                        gui_raise(wid);
+                    }
+                    last_click_icon = ic;
+                    last_click_tick = now_t;
+                }
+                gui_build_bg();                  // reflect selection
+                need_compose = 1;
             }
-        } else if (!left && prev_buttons) {          // button release
+        } else if (!left && prev_buttons) {
             dragging = -1;
         }
         prev_buttons = left;
@@ -961,7 +1091,7 @@ static void gui64_run(void) {
         uint64_t now = timer_ticks / 100;
         if (now != last_clock) {
             last_clock = now;
-            gui_taskbar_to(bg_buffer);   // refresh clock in the background
+            gui_taskbar_to(bg_buffer);
             need_compose = 1;
         }
 
@@ -988,7 +1118,7 @@ static void shell_exec(const char* cmd) {
         con_puts("  mem    - memory summary\n");
         con_puts("  ticks  - timer ticks since boot\n");
         con_puts("  smp    - run the preemptive multitasking demo\n");
-        con_puts("  gui    - enter the graphical OS/2-style desktop\n");
+        con_puts("  gui    - OS/2 Workplace Shell desktop (double-click icons)\n");
         con_puts("  clear  - clear the screen\n");
         con_puts("  echo X - print X\n");
     } else if (str_eq(cmd, "ver")) {

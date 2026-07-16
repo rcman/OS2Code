@@ -22,3 +22,8 @@ qemu_err.txt
 # Editor / OS
 *.swp
 .DS_Store
+
+# SDK build artifacts
+sdk/examples/*.exe
+sdk/examples/*.o
+sdk/*.o
