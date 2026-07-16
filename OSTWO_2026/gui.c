@@ -83,6 +83,20 @@ void gui_init(void) {
     gui_draw_cursor();
 }
 
+extern uint32_t timer_get_ticks(void);
+
+// Desktop icons (Workplace Shell objects). The table is shared between
+// drawing and hit-testing so they always agree.
+typedef struct { int x, y, type; const char* label; } desk_icon_t;
+static const desk_icon_t desk_icons[] = {
+    {  20,  30, 0, "OS/2 System" },
+    {  20, 120, 1, "Drives" },
+    {  20, 210, 2, "Programs" },
+    {  20, 300, 3, "Information" },
+    {  20, 390, 4, "Shredder" },
+};
+#define NUM_DESK_ICONS 5
+
 // Draw a Workplace-Shell-style desktop icon glyph (32 wide) at (x,y).
 static void gui_desktop_icon(int x, int y, int type, const char* label) {
     switch (type) {
@@ -129,11 +143,10 @@ void gui_draw_desktop(void) {
     if (vga_get_mode_info()->bpp == 32) {
         // OS/2 Warp teal desktop with Workplace Shell object icons
         vga_fill_rect32(0, 0, gui_screen_w(), gui_screen_h(), 0x2E8B8B);
-        gui_desktop_icon(20,  30, 0, "OS/2 System");
-        gui_desktop_icon(20, 120, 1, "Drives");
-        gui_desktop_icon(20, 210, 2, "Programs");
-        gui_desktop_icon(20, 300, 3, "Information");
-        gui_desktop_icon(20, 390, 4, "Shredder");
+        for (int i = 0; i < NUM_DESK_ICONS; i++) {
+            gui_desktop_icon(desk_icons[i].x, desk_icons[i].y,
+                             desk_icons[i].type, desk_icons[i].label);
+        }
     } else {
         vga_clear_screen(desktop.desktop_color);
     }
@@ -971,6 +984,77 @@ void gui_handle_mouse_move(int x, int y) {
 }
 
 // Handle mouse button down
+// Which desktop icon (if any) is under (x,y)? Returns index or -1.
+static int gui_desktop_icon_at(int x, int y) {
+    for (int i = 0; i < NUM_DESK_ICONS; i++) {
+        if (x >= desk_icons[i].x - 4 && x < desk_icons[i].x + 36 &&
+            y >= desk_icons[i].y - 4 && y < desk_icons[i].y + 44) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int gui_streq(const char* a, const char* b) {
+    while (*a && *b) { if (*a != *b) return 0; a++; b++; }
+    return *a == *b;
+}
+
+// Open (or re-focus) the folder window for a desktop icon.
+static void gui_open_folder(int icon) {
+    const char* title = desk_icons[icon].label;
+
+    // Already open? show and focus it.
+    for (int i = 0; i < desktop.num_windows; i++) {
+        if (gui_streq(desktop.windows[i].title, title)) {
+            gui_show_window(&desktop.windows[i]);
+            gui_focus_window(&desktop.windows[i]);
+            gui_draw_all_windows();
+            return;
+        }
+    }
+
+    window_t* w = gui_create_window(180 + icon * 26, 110 + icon * 22,
+                                    420, 190, title);
+    if (!w) return;
+
+    switch (icon) {
+        case 0:  // OS/2 System
+            gui_window_print(w, "OS/Two - OS/2-compatible operating system\n\n");
+            gui_window_print(w, "32-bit x86 protected mode, paging, ring 0/3\n");
+            gui_window_print(w, "Preemptive multitasking, threads, IPC\n");
+            gui_window_print(w, "Runs genuine OS/2 LX executables\n");
+            gui_window_print(w, "1024x768x32 Workplace Shell desktop\n");
+            break;
+        case 1:  // Drives
+            gui_window_print(w, "Drives\n\n");
+            gui_window_print(w, "  C:  OS2BOOT   RamFS   (in memory)\n");
+            gui_window_print(w, "  A:  Floppy    empty\n");
+            gui_window_print(w, "  X:  Network   offline\n");
+            break;
+        case 2:  // Programs
+            gui_window_print(w, "Programs\n\n");
+            gui_window_print(w, "  Command Shell    - the OS/Two> prompt\n");
+            gui_window_print(w, "  hello.exe        - SDK sample (LX)\n");
+            gui_window_print(w, "  hello_os2.exe    - OS/2 LX executable\n\n");
+            gui_window_print(w, "Build your own: see sdk/README.md\n");
+            break;
+        case 3:  // Information
+            gui_window_print(w, "Information\n\n");
+            gui_window_print(w, "OS/Two runs OS/2 apps and, on the 64-bit\n");
+            gui_window_print(w, "kernel, native 64-bit apps too.\n");
+            gui_window_print(w, "github.com/rcman/OS2Code\n");
+            break;
+        case 4:  // Shredder
+            gui_window_print(w, "Shredder\n\n");
+            gui_window_print(w, "Drag objects here to discard them.\n");
+            gui_window_print(w, "(The Shredder is empty.)\n");
+            break;
+    }
+    gui_focus_window(w);
+    gui_draw_all_windows();
+}
+
 void gui_handle_mouse_down(int x, int y, int button) {
     desktop.mouse_buttons |= (1 << button);
 
@@ -1065,6 +1149,22 @@ void gui_handle_mouse_down(int x, int y, int button) {
             }
 
             gui_draw_all_windows();
+        } else {
+            // Clicked the desktop: check for a Workplace Shell icon.
+            // Two clicks on the same icon within ~0.5s opens its folder.
+            static uint32_t last_click_tick = 0;
+            static int last_click_icon = -1;
+            int ic = gui_desktop_icon_at(x, y);
+            if (ic >= 0) {
+                uint32_t now = timer_get_ticks();
+                if (ic == last_click_icon && (now - last_click_tick) < 50) {
+                    gui_open_folder(ic);
+                    last_click_icon = -1;
+                } else {
+                    last_click_icon = ic;
+                    last_click_tick = now;
+                }
+            }
         }
     }
 }

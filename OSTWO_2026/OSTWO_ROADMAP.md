@@ -674,6 +674,12 @@ Goal: 64-bit kernel that runs 64-bit ELF apps natively AND keeps running
       behind it. Note: QEMU relative-pointer events are only 1:1 in
       small steps (large deltas get acceleration) - relevant for
       scripted QMP testing, not real use ✅
+- [x] Clickable 32-bit desktop icons (July 2026): double-clicking a
+      Workplace Shell icon opens (or re-focuses) its folder window with
+      real content - OS/2 System, Drives, Programs, Information,
+      Shredder. Hit-testing + double-click timing (timer_get_ticks) in
+      gui_handle_mouse_down's desktop branch; gui_open_folder finds an
+      existing window by title or creates one. Verified end-to-end. ✅
 - [x] Workplace Shell look on the 32-bit desktop too (July 2026):
       added true-color drawing helpers (vga_fill_rect32/bevel32/
       draw_string32) and restyled gui.c - teal Warp desktop with WPS
