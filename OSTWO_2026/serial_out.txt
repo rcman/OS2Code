@@ -1,0 +1,122 @@
+=====================================
+     OS/Two v0.3 (Alpha)
+  OS/2-Compatible Operating System
+=====================================
+
+[Boot] Kernel ends at 0x1cd000
+[Boot] Multiboot magic OK (0x2badb002)
+[Boot] Multiboot flags: 0x24f
+[Boot] Memory: 639 KB lower, 64372 KB upper
+[Boot] Memory map available at 0x9000, length 144
+[Init] Checking for VBE framebuffer...
+[VBE] No framebuffer detected, will use legacy VGA
+[Init] Setting up GDT...
+[Init] GDT loaded
+[Init] Setting up IDT...
+[Init] IDT loaded, PIC remapped
+[Init] Setting up PMM...
+[PMM] Parsing memory map at 0x9000, length 144
+[PMM]   Region: base=0x0, len=0x9fc00, type=1 (avail)
+[PMM]   Region: base=0x9fc00, len=0x400, type=2 (rsvd)
+[PMM]   Region: base=0xf0000, len=0x10000, type=2 (rsvd)
+[PMM]   Region: base=0x100000, len=0x3edd000, type=1 (avail)
+[PMM]   Region: base=0x3fdd000, len=0x23000, type=2 (rsvd)
+[PMM]   Region: base=0xfffc0000, len=0x40000, type=2 (rsvd)
+[PMM] Reserved kernel: 0x100000 - 0x1cd000 (820 KB)
+[PMM] Memory: 65008 KB total, 1844 KB used, 63164 KB free
+[PMM] Pages: 16252 total, 461 used, 15791 free
+[Init] Setting up VMM...
+[VMM] Initializing virtual memory...
+[VMM] Paging enabled! Page directory at 0x151000
+[Timer] Initialized at 100 Hz
+[Keyboard] Initialized
+[Mouse] Initialized at (512, 384)
+[Syscall] Handler registered (int 0x80)
+[Graphics] Text mode active (VGA available)
+[Init] Initializing VFS...
+[VFS] Virtual File System initialized
+[RamFS-VFS] Initialized with directory support
+[VFS] Registered filesystem: ramfs
+[VFS] Set root filesystem to: ramfs
+[DOS File] DOS File API initialized
+[Linux-Syscall] Linux syscall compatibility layer initialized
+[Init] Initializing device drivers...
+[Serial] Initialized port 0x3f8 at baud divisor 12
+[Parallel] Initialized port 0x378
+[IDE] Initializing IDE subsystem...
+[IDE] Error waiting for DRQ (status=0x41, error=0x4)
+[IDE] Initialization complete
+[VGA-GFX] Graphics subsystem initialized
+[Init] Initializing IPC subsystem...
+[IPC] Subsystem initialized
+[IPC] Pipes: 32, Shared Memory: 32, Message Queues: 32
+[Init] Initializing PCI and VirtIO...
+[PCI] Initializing PCI subsystem...
+[PCI] %02x:%02x.0 - Vendor: 0x%04x Device: 0x%04x Class: 0x%02x/0x%02x
+[PCI] %02x:%02x.0 - Vendor: 0x%04x Device: 0x%04x Class: 0x%02x/0x%02x
+[PCI] %02x:%02x.0 - Vendor: 0x%04x Device: 0x%04x Class: 0x%02x/0x%02x
+[PCI] %02x:%02x.0 - Vendor: 0x%04x Device: 0x%04x Class: 0x%02x/0x%02x
+[PCI] %02x:%02x.0 - Vendor: 0x%04x Device: 0x%04x Class: 0x%02x/0x%02x
+[PCI] %02x:%02x.0 - Vendor: 0x%04x Device: 0x%04x Class: 0x%02x/0x%02x
+[PCI] %02x:%02x.0 - Vendor: 0x%04x Device: 0x%04x Class: 0x%02x/0x%02x
+[PCI] Found 7 PCI device(s)
+[VirtIO] Initializing VirtIO subsystem...
+[VirtIO] Found VirtIO device: 0x%04x
+[VirtIO] Device I/O base: 0xc000
+[VirtIO] Device features: 0x79006e54
+[VirtIO-BLK] Initializing block device...
+[VirtIO-BLK] Capacity: %llu sectors (%llu MB)
+[VirtIO] Creating queue 0 (size=256)
+[VirtIO-BLK] Device initialized successfully
+[VirtIO] Found VirtIO device: 0x%04x
+[VirtIO] Device I/O base: 0xc080
+[VirtIO] Device features: 0x79bf8064
+[VirtIO] Found 1 VirtIO device(s)
+[Init] Initializing network stack...
+[NET] Initializing network stack...
+[NET] Network stack initialized
+[VirtIO-Net] Initializing VirtIO-Net driver...
+[VirtIO-Net] Found VirtIO-Net device
+[VirtIO] Device I/O base: 0xc080
+[VirtIO] Device features: 0x79bf8064
+[VirtIO-Net] Initializing network device...
+[VirtIO-Net] MAC: %02x:%02x:%02x:%02x:%02x:%02x
+[VirtIO] Creating queue 0 (size=256)
+[VirtIO] Creating queue 1 (size=256)
+[NET] Registered interface virtio0: IP=10.0.2.15 MAC=%02x:%02x:%02x:%02x:%02x:%02x
+[VirtIO-Net] Device initialized successfully
+[VirtIO-Net] Found 1 VirtIO-Net device(s)
+[Init] Initializing legacy RamFS...
+[RamFS] Initialized (32 file slots, 4096 bytes/file)
+[Debug] hello_bin address: 0x12af0c, length: 60
+[Debug] loop_bin address: 0x12af48, length: 144
+[Debug] First bytes of hello_bin: %02x %02x %02x %02x
+[Debug] ramfs_write returned: hello=60, loop=144
+[Debug] ramfs_count after write: 2
+[RamFS] Loaded 2 built-in programs (hello=60 bytes, loop=144 bytes)
+[Init] Initializing process manager...
+[Process] Initializing process manager...
+[Process] Created idle process (PID 0)
+[Process] Process manager initialized
+[Init] Initializing semaphores...
+[Semaphore] Initialized (max 64 semaphores)
+[Init] Initializing threads...
+[Thread] Initialized (max 64 threads)
+[Init] Initializing scheduler...
+[Scheduler] Initializing round-robin scheduler...
+[Scheduler] Initialized (disabled until started)
+[Init] Enabling interrupts...
+
+System ready! Type 'help' for commands.
+Try: mem, vmm, alloc
+
+Built-in programs:
+  hello.bin (60 bytes)
+  loop.bin (144 bytes)
+  welcome.txt (58 bytes)
+  readme.txt (136 bytes)
+
+[Init] Switching to graphics mode...
+[VGA-GFX] Set mode 13h (320x200x256)
+[Init] Initializing GUI...
+[Init] Creating shell window...

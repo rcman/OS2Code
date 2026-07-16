@@ -1,0 +1,13 @@
+# wlink directives for hello3.exe - OS/2 memory & clock API test
+name hello3.exe
+format os2 lx
+file hello3.o
+option quiet
+option map=hello3.map
+option stack=16k
+option start=os2main
+import DosWrite       DOSCALLS.282
+import DosExit        DOSCALLS.234
+import DosAllocMem    DOSCALLS.299
+import DosFreeMem     DOSCALLS.304
+import DosGetDateTime DOSCALLS.230

@@ -1,0 +1,14 @@
+# wlink directives for hello2.exe - OS/2 LX executable
+name hello2.exe
+format os2 lx
+file hello2.o
+option quiet
+option map=hello2.map
+option stack=16k
+# no "option internalrelocs": like real-world OS/2 EXEs, internal fixups
+# are stripped and the module must load at its preferred base (0x10000)
+option start=os2main
+import DosBeep  DOSCALLS.286
+import DosWrite DOSCALLS.282
+import DosExit  DOSCALLS.234
+import DosSleep DOSCALLS.229

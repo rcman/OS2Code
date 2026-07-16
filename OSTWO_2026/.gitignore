@@ -1,0 +1,24 @@
+# Build artifacts
+*.o
+*.o64
+kernel.bin
+kernel64.bin
+kernel64.elf
+ostwo64.bin
+thunk32.bin
+*.iso
+isodir/
+userprogs/*.o
+userprogs/*.map
+userprogs/app64.elf
+
+# Runtime / large / generated-at-runtime
+virtio-disk.img
+*.log
+*.out
+*.pid
+qemu_err.txt
+
+# Editor / OS
+*.swp
+.DS_Store
