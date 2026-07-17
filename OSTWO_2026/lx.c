@@ -22,6 +22,12 @@ extern uint32_t lx_thunk_count;
 // Module ids in the thunk table
 #define LX_MOD_DOSCALLS 0
 #define LX_MOD_NLS      1
+#define LX_MOD_MSG      2
+
+// User addresses of the current LX process's info blocks, published for
+// the DosGetInfoBlocks syscall. One LX process runs at a time here.
+uint32_t lx_pib_addr = 0;
+uint32_t lx_tib_addr = 0;
 
 #define LX_MAX_OBJECTS 16
 
@@ -100,6 +106,8 @@ static uint32_t lx_resolve_import(const lx_header_t* hdr, uint32_t module_ord,
     int mod_id = -1;
     if (lx_name_is(mod_name, mod_len, "DOSCALLS")) {
         mod_id = LX_MOD_DOSCALLS;
+    } else if (lx_name_is(mod_name, mod_len, "MSG")) {
+        mod_id = LX_MOD_MSG;
     } else if (lx_name_is(mod_name, mod_len, "NLS")) {
         mod_id = LX_MOD_NLS;
     }
@@ -645,6 +653,14 @@ uint32_t lx_exec(const char* name, const char* args,
     // backward from the command line pointer.
     uint32_t stack_top = module_esp ? module_esp
                                     : (user_stack_virt + PAGE_SIZE - 4);
+    // OS/2 info blocks (TIB/PIB/TIB2) live at the top of the stack page,
+    // above the argument/environment strings (read-only to the program).
+    // DosGetInfoBlocks returns these; the C runtime reads the command
+    // line and environment pointers out of the PIB to build argv/environ.
+    uint32_t pib_addr  = (stack_top - 28) & ~3u;
+    uint32_t tib_addr  = (pib_addr  - 24) & ~3u;
+    uint32_t tib2_addr = (tib_addr  - 16) & ~3u;
+    stack_top = tib2_addr;
     {
         static const char env_block[] = "PATH=C:\\\0COMSPEC=C:\\OS2\\CMD.EXE";
         uint32_t name_len = 0;
@@ -687,13 +703,41 @@ uint32_t lx_exec(const char* name, const char* args,
         }
         cmd[name_len + 1 + args_len] = 0;
 
+        uint32_t env_addr = blk_addr;
+        uint32_t cmd_addr = blk_addr + env_size + path_len + 1;
+
         uint32_t frame = (blk_addr - 16) & ~3u;
         uint32_t* f = (uint32_t*)frame;
         f[0] = 1;                                    // module handle
         f[1] = 0;                                    // reserved
-        f[2] = blk_addr;                             // environment
-        f[3] = blk_addr + env_size + path_len + 1;   // command line
+        f[2] = env_addr;                             // environment
+        f[3] = cmd_addr;                             // command line
         stack_top = frame;
+
+        // Fill the OS/2 Process/Thread Information Blocks.
+        uint32_t* pib = (uint32_t*)pib_addr;
+        pib[0] = pid;                                // pib_ulpid
+        pib[1] = 0;                                  // pib_ulppid
+        pib[2] = 1;                                  // pib_hmte
+        pib[3] = cmd_addr;                           // pib_pchcmd
+        pib[4] = env_addr;                           // pib_pchenv
+        pib[5] = 0;                                  // pib_flstatus
+        pib[6] = 1;                                  // pib_ultype
+        uint32_t* tib = (uint32_t*)tib_addr;
+        tib[0] = 0xFFFFFFFF;                         // tib_pexchain (end)
+        tib[1] = user_stack_virt;                    // tib_pstack (low)
+        tib[2] = user_stack_virt + PAGE_SIZE;        // tib_pstacklimit (high)
+        tib[3] = tib2_addr;                          // tib_ptib2
+        tib[4] = 0;                                  // tib_version
+        tib[5] = 0;                                  // tib_ordinal
+        uint32_t* tib2 = (uint32_t*)tib2_addr;
+        tib2[0] = 1;                                 // tib2_ultid
+        tib2[1] = 0x0200;                            // tib2_ulpri
+        tib2[2] = 0;                                 // tib2_version
+        tib2[3] = 0;                                 // MCCount/ForceFlag
+
+        lx_pib_addr = pib_addr;
+        lx_tib_addr = tib_addr;
     }
     vmm_switch_page_directory(old_pd);
 

@@ -131,6 +131,31 @@ sudo apt install gcc gcc-multilib nasm make qemu-system-x86
 
 ---
 
+## What "runs OS/2 apps" means (honestly)
+
+OS/Two implements the OS/2 **LX executable format** and a **subset of the OS/2
+API**, so be clear-eyed about the scope:
+
+- **Yes:** it runs OS/2 LX executables that stay within the implemented API —
+  proven with real Open Watcom-built OS/2 programs, including full C-runtime
+  apps doing `printf`, file I/O and `argv`.
+- **Partially:** an unmodified 1996 IBM Warp binary (SYSDUMP.EXE from a Warp 4
+  CD) *loads and executes* — the loader parses it, decompresses its pages, and
+  it runs into and through its C-runtime heap init — but doesn't yet finish,
+  because IBM's VisualAge C runtime lays out argv/environment differently than
+  the loader currently provides.
+- **Not yet:** most shrink-wrapped Warp software. GUI apps need the
+  **Presentation Manager**, and text apps typically need the **VIO/KBD**
+  subsystems — large OS/2 API surfaces that aren't implemented. OS/Two
+  implements a few dozen `DOSCALLS` functions out of OS/2's many hundreds of
+  APIs.
+
+In short: OS/Two runs OS/2 *format* binaries and a growing slice of the OS/2
+API — not the general Warp catalog. That gap narrows one API at a time. See the
+[roadmap](OSTWO_2026/OSTWO_ROADMAP.md) section A.2 for the current status.
+
+---
+
 ## Repository layout
 
 ```

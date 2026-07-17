@@ -536,8 +536,32 @@ With a small team (2-3 developers), timeline could be reduced significantly.
 - [x] Verified end-to-end: hello_os2.exe (real LX file built by
       userprogs/mklx.py) runs, prints via DosWrite, exits via DosExit
 
-### A.2 Toward Unmodified OS/2 Warp Apps — TODO
-- [x] Iterated (ITERDATA/ITERDATA2 compressed) page support — both
+### A.2 Toward Unmodified OS/2 Warp Apps — IN PROGRESS
+
+**Reality check (July 2026):** tested against real binaries from
+`os2_warp4.iso`. A genuine, unmodified 1996 IBM tool (SYSDUMP.EXE)
+**loads and runs** on OSTwo — the LX loader parses it, decompresses its
+ITERDATA2 pages, applies every relocation, and it executes into and
+through its C-runtime heap initialization (7 real DosAllocMem calls)
+before stalling in argv/environment setup. That last step is an IBM
+VisualAge C runtime specific: it does an extra dereference on the
+environment pointer (expects a different layout than OS/2's documented
+flat block, which the Watcom runtime uses fine). Finishing IBM's crt0
+is a real reverse-engineering task, tracked here.
+
+Key finding on what's reachable: most OS/2 GUI/text software needs the
+Presentation Manager or VIO/KBD subsystems (not implemented). But a
+class of small 32-bit **DOSCALLS-only** utilities is close — the loader
+handles them and ~half their imports are already implemented.
+
+- [x] DosGetInfoBlocks(312) with a real TIB/PIB (cmdline+environment),
+      plus DosExitList(296), DosCreateMutexSem(331), DosRaiseException
+      (356), DosSetSignalExceptionFocus(378), MSG.6, and fail-stubs for
+      action calls (DosForceSystemDump/DosSysCtl/DosDumpProcess) — the
+      C-runtime startup group real Warp tools import ✅
+- [ ] IBM VisualAge crt0 environment/argv layout (blocks SYSDUMP,
+      TRAPDUMP, STRTSWAP, PROCDUMP — all built with IBM's compiler)
+- [ ] Iterated (ITERDATA/ITERDATA2 compressed) page support — both
       decompressors implemented and verified with packed.exe (pages
       compressed by userprogs/mklx.py) ✅
 - [x] DosAllocMem(299)/DosFreeMem(304)/DosGetDateTime(230) thunks —

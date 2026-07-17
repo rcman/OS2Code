@@ -124,6 +124,7 @@ extern int signal_unblock(uint32_t pid, int signum);
 #define SYSCALL_SIGNAL_BLOCK 49
 #define SYSCALL_SIGNAL_UNBLOCK 50
 #define SYSCALL_QUERYSYSINFO 51
+#define SYSCALL_GETINFOBLOCKS 52
 
 // User mode test handler
 extern void usermode_syscall_handler(registers_t* regs);
@@ -289,6 +290,19 @@ static void syscall_handler(registers_t* regs) {
             speaker_beep(frequency, duration_ms);
             __asm__ volatile("cli");
             regs->eax = 0;  // Success
+            break;
+        }
+
+        case SYSCALL_GETINFOBLOCKS: {
+            // OS/2 DosGetInfoBlocks: EBX = PTIB* out, ECX = PPIB* out.
+            // The LX loader published the current process's info-block
+            // addresses; hand them back to the (C-runtime) caller.
+            extern uint32_t lx_tib_addr, lx_pib_addr;
+            uint32_t* ptib = (uint32_t*)regs->ebx;
+            uint32_t* ppib = (uint32_t*)regs->ecx;
+            if (ptib) *ptib = lx_tib_addr;
+            if (ppib) *ppib = lx_pib_addr;
+            regs->eax = 0;
             break;
         }
 

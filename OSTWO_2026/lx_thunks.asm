@@ -320,9 +320,59 @@ thunk_dosquerydbcsenv:
     mov eax, 87                 ; ERROR_INVALID_PARAMETER
     ret
 
+; APIRET DosGetInfoBlocks(PTIB *pptib, PPIB *pppib)  [DOSCALLS.312]
+; The C runtime reads the command line / environment out of the PIB.
+thunk_dosgetinfoblocks:
+    push ebx
+    mov ebx, [esp + 8]          ; PTIB* (may be NULL)
+    mov ecx, [esp + 12]         ; PPIB* (may be NULL)
+    mov eax, 52                 ; SYSCALL_GETINFOBLOCKS -> EBX=*PTIB, ECX=*PPIB
+    int 0x80
+    pop ebx
+    xor eax, eax
+    ret
+
+; APIRET DosExitList(ULONG ordercode, PFNEXITLIST pfn)  [DOSCALLS.296]
+; Accept exit-list registration and succeed (we don't run the handlers).
+thunk_dosexitlist:
+    xor eax, eax
+    ret
+
+; APIRET DosCreateMutexSem(PSZ name, PHMTX ph, ULONG flags, BOOL init)  [DOSCALLS.331]
+; Hand back a non-zero pseudo-handle; the runtime just needs something
+; it can pass to request/release (which are no-ops here).
+thunk_doscreatemutexsem:
+    mov ecx, [esp + 8]          ; PHMTX
+    jecxz .done
+    mov dword [ecx], 1
+.done:
+    xor eax, eax
+    ret
+
+; APIRET DosRaiseException(PEXCEPTIONREPORTRECORD p)  [DOSCALLS.356]
+; APIRET DosSetSignalExceptionFocus(BOOL flag, PULONG pcnt)  [DOSCALLS.378]
+thunk_dossetsigexcfocus:
+    mov ecx, [esp + 8]
+    jecxz .d
+    mov dword [ecx], 1
+.d:
+    xor eax, eax
+    ret
+
+thunk_dosnoop2:                 ; generic "succeed and do nothing" stub
+    xor eax, eax
+    ret
+
+; The app's action call (DosForceSystemDump / DosSysCtl / DosDumpProcess)
+; and MSG message retrieval - report "not supported" so the tool prints
+; its error/usage instead of crashing.
+thunk_dosfail:
+    mov eax, 1                  ; ERROR_INVALID_FUNCTION
+    ret
+
 lx_thunk_blob_end:
 
-; Import table: module id (0=DOSCALLS, 1=NLS), ordinal, blob offset
+; Import table: module id (0=DOSCALLS, 1=NLS, 2=MSG), ordinal, blob offset
 align 4
 lx_thunk_table:
     dd 0, 282, thunk_doswrite        - lx_thunk_blob_start
@@ -346,10 +396,19 @@ lx_thunk_table:
     dd 0, 321, thunk_dosqueryprocaddr  - lx_thunk_blob_start
     dd 0, 425, thunk_dosflattosel    - lx_thunk_blob_start
     dd 0, 426, thunk_dosseltoflat    - lx_thunk_blob_start
+    dd 0, 312, thunk_dosgetinfoblocks - lx_thunk_blob_start
+    dd 0, 296, thunk_dosexitlist     - lx_thunk_blob_start
+    dd 0, 331, thunk_doscreatemutexsem - lx_thunk_blob_start
+    dd 0, 356, thunk_dosnoop2        - lx_thunk_blob_start
+    dd 0, 378, thunk_dossetsigexcfocus - lx_thunk_blob_start
+    dd 0, 444, thunk_dosfail         - lx_thunk_blob_start   ; DosForceSystemDump
+    dd 0, 876, thunk_dosfail         - lx_thunk_blob_start   ; DosSysCtl
+    dd 0, 113, thunk_dosfail         - lx_thunk_blob_start   ; DosDumpProcess
     dd 1,   6, thunk_dosquerydbcsenv - lx_thunk_blob_start
+    dd 2,   6, thunk_dosfail         - lx_thunk_blob_start   ; MSG.6
 
 lx_thunk_count:
-    dd 22
+    dd 28
 
 ; Blob offset of the unimplemented-API fallback (used by the loader
 ; for imports that have no thunk table entry)
