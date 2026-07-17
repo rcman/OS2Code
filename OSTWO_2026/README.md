@@ -4,6 +4,11 @@
 **Status:** Early Development
 **License:** MIT (to be determined)
 
+![OS/Two Workplace Shell desktop](docs/ostwo_desktop.png)
+
+*The OS/Two Workplace Shell desktop at 1024×768×32: teal OS/2 Warp background,
+double-clickable object icons, and an open folder window in OS/2 window chrome.*
+
 ---
 
 ## What is OS/Two?
